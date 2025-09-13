@@ -6,13 +6,17 @@ const passport = require("passport");
 const { Strategy: GoogleStrategy } = require("passport-google-oauth20");
 const { v4: uuidv4 } = require("uuid");
 const QRCode = require("qrcode");
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, Partials } = require("discord.js");
 require("dotenv").config();
 
 // ------------------ App + DB ------------------
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const BASE_URL =
+  process.env.BASE_URL ||
+  (process.env.RENDER_EXTERNAL_URL
+    ? process.env.RENDER_EXTERNAL_URL
+    : `http://localhost:${PORT}`);
 
 mongoose
   .connect(process.env.MONGO_URI)
@@ -69,10 +73,7 @@ passport.use(
 
         let user = await User.findOne({ email });
         if (!user) {
-          user = await User.create({
-            email,
-            verified: true,
-          });
+          user = await User.create({ email, verified: true });
         } else {
           user.verified = true;
           await user.save();
@@ -80,6 +81,7 @@ passport.use(
 
         return done(null, user);
       } catch (err) {
+        console.error("Google Strategy Error:", err);
         return done(err, null);
       }
     }
@@ -104,7 +106,7 @@ app.get("/api/generate-link/:discordId", async (req, res) => {
   }
 });
 
-// Google OAuth Start - use state param
+// Google OAuth Start
 app.get("/auth/google", async (req, res, next) => {
   const token = req.query.token;
   if (!token) return res.send("❌ Missing token.");
@@ -114,7 +116,7 @@ app.get("/auth/google", async (req, res, next) => {
 
   passport.authenticate("google", {
     scope: ["profile", "email"],
-    state: token, // pass token as state
+    state: token,
   })(req, res, next);
 });
 
@@ -124,7 +126,7 @@ app.get(
   passport.authenticate("google", { failureRedirect: "/auth/failure" }),
   async (req, res) => {
     try {
-      const token = req.query.state; // get token back
+      const token = req.query.state;
       const tokenDoc = await Token.findOne({ token });
       if (!tokenDoc) {
         return res.send("❌ Invalid or expired verification link.");
@@ -190,7 +192,6 @@ app.get(
       }
 
       await Token.deleteOne({ token }); // remove used token
-
       res.send("✅ Verification successful! You can return to Discord.");
     } catch (err) {
       console.error("Callback error:", err);
@@ -212,6 +213,7 @@ const discordClient = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
   ],
+  partials: [Partials.Channel], // DM ke liye zaroori
 });
 
 discordClient.once("ready", () => {
@@ -225,7 +227,6 @@ discordClient.on("messageCreate", async (message) => {
   if (message.content.toLowerCase() === "!verify") {
     try {
       const discordId = message.author.id;
-
       const fetch = (await import("node-fetch")).default;
       const res = await fetch(`${BASE_URL}/api/generate-link/${discordId}`);
       const data = await res.json();
@@ -240,7 +241,8 @@ discordClient.on("messageCreate", async (message) => {
         );
         await message.author.send(`📷 Or scan this QR code:\n${data.qr}`);
         await message.reply("✅ I've sent you a DM with your verification link.");
-      } catch {
+      } catch (err) {
+        console.error("DM error:", err);
         await message.reply(
           `⚠️ Couldn't DM you. Use this link instead:\n${data.url}`
         );
@@ -255,5 +257,5 @@ discordClient.on("messageCreate", async (message) => {
 // ------------------ Start ------------------
 discordClient.login(process.env.DISCORD_TOKEN);
 app.listen(PORT, () =>
-  console.log(`🚀 Server running on http://localhost:${PORT}`)
+  console.log(`🚀 Server running at ${BASE_URL}`)
 );
