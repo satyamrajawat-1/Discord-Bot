@@ -236,15 +236,20 @@ discordClient.on("messageCreate", async (message) => {
       }
 
       try {
+        // Send only in DM
         await message.author.send(
           `📌 To verify your IIITKota email, click this link (valid 5 min):\n${data.url}`
         );
         await message.author.send(`📷 Or scan this QR code:\n${data.qr}`);
+
+        // Confirm in server chat
         await message.reply("✅ I've sent you a DM with your verification link.");
       } catch (err) {
         console.error("DM error:", err);
+
+        // If bot can't DM, only then fallback
         await message.reply(
-          `⚠️ Couldn't DM you. Use this link instead:\n${data.url}`
+          `⚠️ Couldn't DM you. Please enable Direct Messages from server members.\n\nOr use this link instead:\n${data.url}`
         );
       }
     } catch (err) {
@@ -253,6 +258,7 @@ discordClient.on("messageCreate", async (message) => {
     }
   }
 });
+
 
 // ------------------ Start ------------------
 discordClient.login(process.env.DISCORD_TOKEN);
