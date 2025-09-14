@@ -6,7 +6,12 @@ const passport = require("passport");
 const { Strategy: GoogleStrategy } = require("passport-google-oauth20");
 const { v4: uuidv4 } = require("uuid");
 const QRCode = require("qrcode");
-const { Client, GatewayIntentBits, Partials } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  AttachmentBuilder,
+} = require("discord.js");
 require("dotenv").config();
 
 // ------------------ App + DB ------------------
@@ -97,9 +102,9 @@ app.get("/api/generate-link/:discordId", async (req, res) => {
     await Token.create({ token, discordId: req.params.discordId });
 
     const url = `${BASE_URL}/auth/google?token=${token}`;
-    const qr = await QRCode.toDataURL(url);
+    const qrBuffer = await QRCode.toBuffer(url);
 
-    res.json({ url, qr });
+    res.json({ url, qrBuffer: qrBuffer.toString("base64") });
   } catch (err) {
     console.error("Generate link error:", err);
     res.json({ error: "Failed to generate link" });
@@ -236,11 +241,21 @@ discordClient.on("messageCreate", async (message) => {
       }
 
       try {
+        // Convert base64 back to buffer
+        const qrBuffer = Buffer.from(data.qrBuffer, "base64");
+        const qrAttachment = new AttachmentBuilder(qrBuffer, {
+          name: "qrcode.png",
+        });
+
         // Send only in DM
-        await message.author.send(
-          `📌 To verify your IIITKota email, click this link (valid 5 min):\n${data.url}`
-        );
-        await message.author.send(`📷 Or scan this QR code:\n${data.qr}`);
+        await message.author.send({
+          content: `📌 To verify your IIITKota email, click this link (valid 5 min):\n${data.url}`,
+        });
+
+        await message.author.send({
+          content: "📷 Or scan this QR code:",
+          files: [qrAttachment],
+        });
 
         // Confirm in server chat
         await message.reply("✅ I've sent you a DM with your verification link.");
@@ -258,7 +273,6 @@ discordClient.on("messageCreate", async (message) => {
     }
   }
 });
-
 
 // ------------------ Start ------------------
 discordClient.login(process.env.DISCORD_TOKEN);
